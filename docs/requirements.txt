@@ -2,3 +2,11 @@ sphinx
 nbsphinx
 ipykernel
 furo
+omegaconf
+numpy
+tqdm
+matplotlib
+requests
+pandas
+psutil
+hydra-core
