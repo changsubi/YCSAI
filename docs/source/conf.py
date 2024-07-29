@@ -35,6 +35,15 @@ extensions = [
     'nbsphinx',
 ]
 
+autodoc_default_options = {
+    'members': True,
+    'undoc-members': True,
+    'show-inheritance': True,
+}
+
+napoleon_google_docstring = True
+napoleon_numpy_docstring = True
+
 # Always execute the notebooks
 nbsphinx_execute = 'never'
 nbsphinx_allow_errors = True
@@ -69,9 +78,3 @@ pygments_style = 'tango'
 # so a file named "default.css" will overwrite the builtin "default.css".
 
 html_logo = "../../logo.png"
-
-autodoc_default_options = {
-    'members': True,
-    'undoc-members': True,
-    'show-inheritance': True,
-}
