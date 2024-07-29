@@ -13,3 +13,4 @@ requests
 pandas
 psutil
 hydra-core
+opencv-python
