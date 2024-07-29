@@ -69,3 +69,9 @@ pygments_style = 'tango'
 # so a file named "default.css" will overwrite the builtin "default.css".
 
 html_logo = "../../logo.png"
+
+autodoc_default_options = {
+    'members': True,
+    'undoc-members': True,
+    'show-inheritance': True,
+}
