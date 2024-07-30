@@ -33,6 +33,8 @@ Clone this repository, then type in a terminal :
 	pip install pandas
 	pip install psutil
 	pip install hydra-core
+	pip install Pillow==9.5.0
+	pip install seaborn
 	
 .. inclusion-installation-end
 
