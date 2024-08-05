@@ -1,3 +1,6 @@
+# torchrun --nproc_per_node=NUMER_OF_GPU train.py (recommended for training)
+# But you don't multi-GPU then you can run python3 train.py
+
 import hydra
 from omegaconf import DictConfig
 from ycsai import Engine
