@@ -119,7 +119,7 @@ def verify_image_label(args):
     except Exception as e:
         nc = 1
         msg = f'{prefix}WARNING {im_file}: ignoring corrupt image/label: {e}'
-        return [None, None, None, None, nm, nf, ne, nc, msg]
+        return [None, None, None, nm, nf, ne, nc, msg]
 
 def xywhn2xyxy(x, w=640, h=640, padw=0, padh=0):
     # Convert nx4 boxes from [x, y, w, h] normalized to [x1, y1, x2, y2] where xy1=top-left, xy2=bottom-right
