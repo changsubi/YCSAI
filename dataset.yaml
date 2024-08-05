@@ -1,0 +1,18 @@
+# Train/val/test sets as 1) dir: path/to/imgs, 2) file: path/to/imgs.txt, or 3) list: [path/to/imgs1, path/to/imgs2, ..]
+train: # train images
+  - /workspace
+
+val: # val images
+  - /workspace
+
+# number of classes
+nc: 6
+
+# Classes
+names:
+  0: a
+  1: b
+  2: c
+  3: d
+  4: e
+  5: f 
