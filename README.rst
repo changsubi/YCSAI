@@ -24,18 +24,8 @@ Clone this repository, then type in a terminal :
 
 .. code-block:: bash
 
-	pip install omegaconf
-	pip install numpy
-	pip install tqdm
 	pip install torch torchvision torchaudio # Install as per your environment 
-	pip install matplotlib
-	pip install requests
-	pip install pandas
-	pip install psutil
-	pip install hydra-core
-	pip install Pillow==9.5.0
-	pip install seaborn
-        pip install scipy
+	pip install YCSAI
 	
 .. inclusion-installation-end
 
