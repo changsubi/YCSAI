@@ -35,6 +35,7 @@ Clone this repository, then type in a terminal :
 	pip install hydra-core
 	pip install Pillow==9.5.0
 	pip install seaborn
+        pip install scipy
 	
 .. inclusion-installation-end
 
