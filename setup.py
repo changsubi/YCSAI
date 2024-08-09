@@ -1,14 +1,20 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
-setup(name='python-sample-project',
-      version='v0.1.0',
-      description='Python sample project to illustrate the use of sphinx documentation',
-      long_description=open('README.rst').read(),
-      long_description_content_type='text/x-rst',
-      url='https://github.com/simongravelle/python-sample-project',
-      author='Simon Gravelle',
-      author_email='simon.gravelle@live.fr',
-      license='GNU GENERAL PUBLIC LICENSE',
-      packages=['myproject'],
-      zip_safe=False
-      )
+setup(
+    name='YCSAI',
+    version='1.0.5',
+    description='AI Training API developed by SphereAX.',
+    author='Changseob',
+    author_email='yuncs@sphereax.com',
+    url='https://github.com/changsubi/YCSAI.git',
+    install_requires=['omegaconf', 'numpy', 'tqdm', 'matplotlib', 'requests', 'pandas', 'psutil', 'hydra-core', 'Pillow==9.5.0', 'seaborn', 'scipy', 'torch', 'torchvision', 'torchaudio', 'opencv-python'],
+    packages=find_packages(exclude=[]),
+    keywords=['Train', 'Predict', 'Detection', 'Classification'],
+    python_requires='>=3.8',
+    package_data={},
+    zip_safe=False,
+    classifiers=[
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+    ],
+)
