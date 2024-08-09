@@ -28,6 +28,7 @@ except ImportError:
     thop = None
 
 TORCH_1_10 = check_version(torch.__version__, '1.10.0')
+TORCH_1_13 = check_version(torch.__version__, "1.13.0")
 TORCH_2_0 = check_version(torch.__version__, "2.0.0")
 
 
@@ -466,7 +467,35 @@ def smart_inference_mode(torch_1_9=check_version(torch.__version__, '1.9.0')):
         return (torch.inference_mode if torch_1_9 else torch.no_grad)()(fn)
     return decorate
 
+def autocast(enabled: bool, device: str = "cuda"):
+    """
+    Get the appropriate autocast context manager based on PyTorch version and AMP setting.
 
+    This function returns a context manager for automatic mixed precision (AMP) training that is compatible with both
+    older and newer versions of PyTorch. It handles the differences in the autocast API between PyTorch versions.
+
+    Args:
+        enabled (bool): Whether to enable automatic mixed precision.
+        device (str, optional): The device to use for autocast. Defaults to 'cuda'.
+
+    Returns:
+        (torch.amp.autocast): The appropriate autocast context manager.
+
+    Note:
+        - For PyTorch versions 1.13 and newer, it uses `torch.amp.autocast`.
+        - For older versions, it uses `torch.cuda.autocast`.
+
+    Example:
+        ```python
+        with autocast(amp=True):
+            # Your mixed precision operations here
+            pass
+        ```
+    """
+    if TORCH_1_13:
+        return torch.amp.autocast(device, enabled=enabled)
+    else:
+        return torch.cuda.amp.autocast(enabled)
 
 
 
