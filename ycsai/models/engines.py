@@ -7,6 +7,8 @@ import random
 import math
 from copy import deepcopy
 from datetime import datetime
+import platform
+import cv2
 
 import torch
 import torch.nn as nn
@@ -18,14 +20,15 @@ from ycsai.utils.torch_utils import (
     _init_ddp, _init_seeds, 
     select_device, torch_distributed_zero_first,
     smart_optimizer, ModelEMA, smart_DDP,
-    de_parallel, EarlyStopping
+    de_parallel, EarlyStopping, autocast
 )
 from ycsai.utils.general import (
     increment_path, yaml_save, check_dataset,
     check_suffix, intersect_dicts, check_amp,
     check_img_size, one_cycle, one_flat_cycle,
     labels_to_class_weights, fitness,
-    strip_optimizer
+    strip_optimizer, Profile, non_max_suppression,
+    scale_boxes, xyxy2xywh
 )
 from ycsai.utils.download import(
     attempt_download_asset
@@ -33,21 +36,27 @@ from ycsai.utils.download import(
 from ycsai.utils.loss import ComputeLoss
 from ycsai.utils.experiments import attempt_load
 import ycsai.utils.val as validate
+from ycsai.utils.plots import Annotator
 
 from ycsai.models.tasks import Model
-from ycsai.data.dataloader import create_dataloader
+from ycsai.data.dataloader import (
+    create_dataloader, LoadImages, IMG_FORMATS, VID_FORMATS
+)
+from ycsai.layers.modules import DetectMultiBackend
 
 
 class Engine:
     def __init__(self, cfg: DictConfig):
         """ Initialize model """
-        super().__init__()
-        self.set_device = select_device(cfg.model.device, cfg.model.batch)
-        
+        super().__init__()        
         if cfg.model.task == 'predict':
             print("predict")
+            self.set_device = select_device(cfg.predict.device)
+            # Run predict
+            self.do_detect(cfg)
         elif cfg.model.task == 'train':
             # Set device
+            self.set_device = select_device(cfg.model.device, cfg.model.batch)
             if self.set_device.type in {"cpu"}:
                 pass
             elif RANK != -1:
@@ -244,7 +253,7 @@ class Engine:
                         ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to gs-multiple)
                         imgs = nn.functional.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
                 # Forward
-                with torch.cuda.amp.autocast(amp):
+                with autocast(amp):
                     pred = self.model(imgs)  # forward
                     loss, loss_items = compute_loss(pred, targets.to(self.set_device))  # loss scaled by batch_size
                     if RANK != -1:
@@ -347,7 +356,103 @@ class Engine:
                             compute_loss=compute_loss)  # val best model with plots
         torch.cuda.empty_cache()
         return results
+    
+    def do_detect(self, cfg: DictConfig):
+        source = str(cfg.predict.source)
+        is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
+        if is_file == False:
+            LOGGER.error('source file error!')
+            return None
+        # Load model
+        model = DetectMultiBackend(cfg.predict.weights, device=self.set_device, dnn=cfg.predict.dnn, data=cfg.predict.data, fp16=cfg.predict.half)
+        stride, names, pt = model.stride, model.names, model.pt
+        imgsz = check_img_size(cfg.predict.imgsz, s=stride)  # check image size
+        # Load data
+        bs = 1  # batch_size
+        dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=cfg.predict.vid_stride)
+        vid_path, vid_writer = [None] * bs, [None] * bs
 
+        # Run inference
+        model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
+        seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
+        for path, im, im0s, vid_cap, s in dataset:
+            with dt[0]:
+                im = torch.from_numpy(im).to(model.device)
+                im = im.half() if model.fp16 else im.float()  # uint8 to fp16/32
+                im /= 255  # 0 - 255 to 0.0 - 1.0
+                if len(im.shape) == 3:
+                    im = im[None]  # expand for batch dim
 
+            # Inference
+            with dt[1]:
+                pred = model(im, augment=cfg.predict.augment, visualize=cfg.predict.visualize)
 
+            # NMS
+            set_classes = None if cfg.predict.classes == 'all' else cfg.predict.classes
+            with dt[2]:
+                pred = non_max_suppression(pred, cfg.predict.conf_thres, cfg.predict.iou_thres, set_classes, cfg.predict.agnostic_nms, max_det=cfg.predict.max_det)
 
+            # Second-stage classifier (optional)
+            # pred = utils.general.apply_classifier(pred, classifier_model, im, im0s)
+
+            # Process predictions
+            for i, det in enumerate(pred):  # per image
+                seen += 1
+                p, im0, frame = path, im0s.copy(), getattr(dataset, 'frame', 0)
+
+                p = Path(p)  # to Path
+                save_path = str(Path(cfg.predict.save_dir) / p.name)  # im.jpg
+                txt_path = str(Path(cfg.predict.save_dir) / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # im.txt
+                s += '%gx%g ' % im.shape[2:]  # print string
+                gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+                imc = im0  # for save_crop
+                annotator = Annotator(im0, line_width=cfg.predict.line_thickness, example=str(names))
+                if len(det):
+                    # Rescale boxes from img_size to im0 size
+                    det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
+
+                    # Print results
+                    for c in det[:, 5].unique():
+                        n = (det[:, 5] == c).sum()  # detections per class
+                        s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
+
+                    # Write results
+                    for *xyxy, conf, cls in reversed(det):
+                        if cfg.predict.save_txt:  # Write to file
+                            xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                            line = (cls, *xywh, conf) # label format
+                            with open(f'{txt_path}.txt', 'a') as f:
+                                f.write(('%g ' * len(line)).rstrip() % line + '\n')
+                        if cfg.predict.save_img or cfg.predict.save_crop or cfg.predict.view_img:  # Add bbox to image
+                            c = int(cls)  # integer class
+                            label = f'{names[c]} {conf:.2f}'
+                            annotator.box_label(xyxy, label)
+
+                # Stream results
+                im0 = annotator.result()
+                if cfg.predict.view_img:
+                    if platform.system() == 'Linux' and p not in windows:
+                        windows.append(p)
+                        cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # allow window resize (Linux)
+                        cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
+                    cv2.imshow(str(p), im0)
+                    cv2.waitKey(1)  # 1 millisecond
+
+                # Save results (image with detections)
+                if cfg.predict.save_img:
+                    if dataset.mode == 'image':
+                        cv2.imwrite(save_path, im0)
+                    else:  # 'video' or 'stream'
+                        if vid_path[i] != save_path:  # new video
+                            vid_path[i] = save_path
+                            if isinstance(vid_writer[i], cv2.VideoWriter):
+                                vid_writer[i].release()  # release previous video writer
+                            if vid_cap:  # video
+                                fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                                w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                                h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            else:  # stream
+                                fps, w, h = 30, im0.shape[1], im0.shape[0]
+                            save_path = str(Path(save_path).with_suffix('.mp4'))  # force *.mp4 suffix on results videos
+                            vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+                        vid_writer[i].write(im0)
